@@ -1,6 +1,9 @@
 package com.example.discordbot;
 
+import org.jetbrains.annotations.NotNull;
+
 import com.example.discordbot.audio.PlayerManager;
+
 import net.dv8tion.jda.api.Permission;
 import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.GuildVoiceState;
@@ -8,7 +11,6 @@ import net.dv8tion.jda.api.entities.Member;
 import net.dv8tion.jda.api.entities.channel.middleman.AudioChannel;
 import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
-import org.jetbrains.annotations.NotNull;
 
 public class BotListener extends ListenerAdapter {
     @Override
@@ -23,12 +25,24 @@ public class BotListener extends ListenerAdapter {
         }
 
         if (raw.equals("!play") || raw.startsWith("!play ")) {
-            handlePlay(event, raw.length() > 5 ? raw.substring(5).trim() : "");
+            String playArg;
+            if (raw.length() > 5) {
+                playArg = raw.substring(5).trim();
+            } else {
+                playArg = "";
+            }
+            handlePlay(event, playArg);
             return;
         }
 
         if (raw.equals("!say") || raw.startsWith("!say ")) {
-            handleSay(event, raw.length() > 4 ? raw.substring(4).trim() : "");
+            String sayArg;
+            if (raw.length() > 4) {
+                sayArg = raw.substring(4).trim();
+            } else {
+                sayArg = "";
+            }
+            handleSay(event, sayArg);
             return;
         }
 

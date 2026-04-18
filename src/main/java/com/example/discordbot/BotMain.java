@@ -60,7 +60,10 @@ public class BotMain {
                 if (value.startsWith("\"") && value.endsWith("\"") && value.length() >= 2) {
                     value = value.substring(1, value.length() - 1);
                 }
-                return value.isBlank() ? null : value;
+                if (value.isBlank()) {
+                    return null;
+                }
+                return value;
             }
         } catch (IOException ignored) {
             return null;
