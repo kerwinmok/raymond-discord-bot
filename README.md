@@ -17,10 +17,6 @@ Simple Discord bot in Java using JDA and LavaPlayer.
 - A Discord bot token stored in the `DISCORD_TOKEN` environment variable
 - In the Discord Developer Portal, enable the `MESSAGE CONTENT INTENT`
 
-## Important
-
-If you pasted your token into chat or source files, rotate it in the Discord Developer Portal before using this bot.
-
 ## Run
 
 1. Set your environment variable:
@@ -42,11 +38,6 @@ Then click **Run** or **Debug** above `BotMain.java`. Stopping the debug session
 
 - `mvnw.cmd package`
 - Run: `java -jar target/discord-music-bot-1.0.0.jar`
-
-## Notes
-
-For `!play` to work, the user must be in a voice channel and the bot must have permission to connect and speak.
-This project includes a local Windows Maven wrapper script in [mvnw.cmd](mvnw.cmd) that downloads Maven automatically on first run.
 
 ## Web panel configuration (optional)
 
