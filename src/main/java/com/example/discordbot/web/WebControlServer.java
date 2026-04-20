@@ -1,14 +1,5 @@
 package com.example.discordbot.web;
 
-import com.example.discordbot.audio.PlayerManager;
-import com.sun.net.httpserver.HttpExchange;
-import com.sun.net.httpserver.HttpHandler;
-import com.sun.net.httpserver.HttpServer;
-import net.dv8tion.jda.api.EmbedBuilder;
-import net.dv8tion.jda.api.JDA;
-import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
-import net.dv8tion.jda.api.utils.messages.MessageCreateBuilder;
-
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -19,19 +10,30 @@ import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
 
+import com.example.discordbot.BotRuntimeManager;
+import com.example.discordbot.audio.PlayerManager;
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpHandler;
+import com.sun.net.httpserver.HttpServer;
+
+import net.dv8tion.jda.api.EmbedBuilder;
+import net.dv8tion.jda.api.JDA;
+import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
+import net.dv8tion.jda.api.utils.messages.MessageCreateBuilder;
+
 public class WebControlServer {
     private static final String HOST = "127.0.0.1";
     private static final int DEFAULT_PORT = 8080;
 
-    private final JDA jda;
+    private final BotRuntimeManager runtimeManager;
     private final HttpServer server;
     private final Long defaultChannelId;
     private final String panelKey;
 
     // Creates a local-only HTTP server for controlling bot sends from a browser.
-    public WebControlServer(JDA jda) {
+    public WebControlServer(BotRuntimeManager runtimeManager) {
         try {
-            this.jda = jda;
+            this.runtimeManager = runtimeManager;
 
             int port = parsePort(System.getenv("BOT_WEB_PORT"));
             this.defaultChannelId = parseChannelId(System.getenv("BOT_DEFAULT_CHANNEL_ID"));
@@ -40,6 +42,8 @@ public class WebControlServer {
             this.server = HttpServer.create(new InetSocketAddress(HOST, port), 0);
             this.server.createContext("/", new IndexHandler());
             this.server.createContext("/send", new SendHandler());
+            this.server.createContext("/bot/start", new StartBotHandler());
+            this.server.createContext("/bot/stop", new StopBotHandler());
             this.server.setExecutor(null);
 
             System.out.println("Web panel ready at http://" + HOST + ":" + port);
@@ -98,7 +102,8 @@ public class WebControlServer {
             String channelValue = resolveChannelValue(channelFromQuery);
             String volumeValue = resolveVolumeValue(channelValue, volumeFromQuery);
             String keyInput = buildKeyInputHtml();
-            String html = renderPageHtml(statusHtml, channelValue, volumeValue, keyInput);
+            String botStatusHtml = buildBotStatusHtml();
+            String html = renderPageHtml(statusHtml, botStatusHtml, channelValue, volumeValue, keyInput);
 
             sendHtml(exchange, 200, html);
         }
@@ -152,6 +157,11 @@ public class WebControlServer {
                 return volumeFromQuery;
             }
 
+            JDA jda = runtimeManager.getJda();
+            if (jda == null || !runtimeManager.isOnline()) {
+                return String.valueOf(PlayerManager.DEFAULT_VOLUME);
+            }
+
             Long channelId = parseChannelId(channelValue);
             if (channelId == null) {
                 return String.valueOf(PlayerManager.DEFAULT_VOLUME);
@@ -166,7 +176,15 @@ public class WebControlServer {
             return String.valueOf(currentVolume);
         }
 
-        private String renderPageHtml(String statusHtml, String channelValue, String volumeValue, String keyInput) {
+        private String buildBotStatusHtml() {
+            boolean online = runtimeManager.isOnline();
+            String statusLabel = escapeHtml(runtimeManager.getStatusLabel());
+            String statusClass = online ? "success" : "error";
+            String statusText = online ? "Online" : "Offline";
+            return "<div class=\"status " + statusClass + "\">Bot: " + statusText + " (" + statusLabel + ")</div>";
+        }
+
+        private String renderPageHtml(String statusHtml, String botStatusHtml, String channelValue, String volumeValue, String keyInput) {
             return """
                     <!DOCTYPE html>
                     <html lang=\"en\">
@@ -194,6 +212,15 @@ public class WebControlServer {
                         <h1>Discord Bot Send Panel</h1>
                         %s
                       </div>
+                                            %s
+                                            <form method=\"post\" action=\"/bot/start\" style=\"display:flex; gap:10px; margin-top: 14px;\">
+                                                %s
+                                                <button type=\"submit\">Start Bot</button>
+                                            </form>
+                                            <form method=\"post\" action=\"/bot/stop\" style=\"display:flex; gap:10px; margin-top: 10px;\">
+                                                %s
+                                                <button type=\"submit\">Stop Bot</button>
+                                            </form>
                       <p>Send messages and images as your bot account.</p>
                       <form id=\"sendForm\" method=\"post\" action=\"/send\">
                         <label>Channel ID</label>
@@ -228,7 +255,7 @@ public class WebControlServer {
                       </script>
                     </body>
                     </html>
-                    """.formatted(statusHtml, escapeHtml(channelValue), escapeHtml(volumeValue), keyInput);
+                    """.formatted(statusHtml, botStatusHtml, keyInput, keyInput, escapeHtml(channelValue), escapeHtml(volumeValue), keyInput);
         }
     }
 
@@ -245,37 +272,52 @@ public class WebControlServer {
             if (panelKey != null && !panelKey.isBlank()) {
                 String givenKey = form.getOrDefault("key", "");
                 if (!panelKey.equals(givenKey)) {
-                    sendRedirect(exchange, buildRedirect("error", "Invalid panel key.", form.get("channelId")));
+                    sendRedirect(exchange, buildRedirect("error", "Invalid panel key.", form.get("channelId"), form.get("volume")));
                     return;
                 }
             }
 
             Long channelId = resolveChannelId(form.get("channelId"));
             if (channelId == null) {
-                sendRedirect(exchange, buildRedirect("error", "Missing or invalid Channel ID.", form.get("channelId")));
+                sendRedirect(exchange, buildRedirect("error", "Missing or invalid Channel ID.", form.get("channelId"), form.get("volume")));
+                return;
+            }
+
+            JDA jda = runtimeManager.getJda();
+            if (jda == null || !runtimeManager.isOnline()) {
+                sendRedirect(exchange, buildRedirect("error", "Bot is offline. Start it from the panel first.", form.get("channelId"), form.get("volume")));
                 return;
             }
 
             TextChannel channel = jda.getTextChannelById(channelId);
             if (channel == null) {
-                sendRedirect(exchange, buildRedirect("error", "Channel not found for that ID.", form.get("channelId")));
+                sendRedirect(exchange, buildRedirect("error", "Channel not found for that ID.", form.get("channelId"), form.get("volume")));
                 return;
             }
 
             String message = trimOrEmpty(form.get("message"));
             String imageUrl = trimOrEmpty(form.get("imageUrl"));
-            Integer requestedVolume = parseVolume(form.get("volume"));
-            if (requestedVolume == null) {
-                sendRedirect(exchange, buildRedirect("error", "Volume must be a whole number.", form.get("channelId"), form.get("volume")));
-                return;
+            String rawVolume = form.get("volume");
+            Integer requestedVolume = null;
+            if (hasText(rawVolume)) {
+                requestedVolume = parseInteger(rawVolume);
+                if (requestedVolume == null) {
+                    sendRedirect(exchange, buildRedirect("error", "Volume must be a whole number.", form.get("channelId"), form.get("volume")));
+                    return;
+                }
             }
 
-            if (message.isBlank() && imageUrl.isBlank() && form.get("volume") != null && form.get("volume").isBlank()) {
+            if (message.isBlank() && imageUrl.isBlank() && requestedVolume == null) {
                 sendRedirect(exchange, buildRedirect("error", "Message, image URL, or volume is required.", form.get("channelId"), form.get("volume")));
                 return;
             }
 
-            int appliedVolume = PlayerManager.getInstance().setVolume(channel.getGuild(), requestedVolume);
+            int appliedVolume;
+            if (requestedVolume != null) {
+                appliedVolume = PlayerManager.getInstance().setVolume(channel.getGuild(), requestedVolume);
+            } else {
+                appliedVolume = PlayerManager.getInstance().getVolume(channel.getGuild());
+            }
 
             MessageCreateBuilder builder = new MessageCreateBuilder();
             if (!message.isBlank()) {
@@ -298,16 +340,16 @@ public class WebControlServer {
             }
         }
 
-        private Integer parseVolume(String rawVolume) {
-            if (rawVolume == null || rawVolume.isBlank()) {
-                return PlayerManager.DEFAULT_VOLUME;
-            }
-
+        private Integer parseInteger(String rawValue) {
             try {
-                return Integer.parseInt(rawVolume.trim());
+                return Integer.parseInt(rawValue.trim());
             } catch (NumberFormatException e) {
                 return null;
             }
+        }
+
+        private boolean hasText(String value) {
+            return value != null && !value.trim().isBlank();
         }
 
         private Long resolveChannelId(String fromForm) {
@@ -322,14 +364,62 @@ public class WebControlServer {
                 return null;
             }
         }
+    }
 
-        private String buildRedirect(String status, String message, String channelId, String volume) {
-            String encodedStatus = URLEncoder.encode(status, StandardCharsets.UTF_8);
-            String encodedMessage = URLEncoder.encode(trimOrEmpty(message), StandardCharsets.UTF_8);
-            String encodedChannelId = URLEncoder.encode(trimOrEmpty(channelId), StandardCharsets.UTF_8);
-            String encodedVolume = URLEncoder.encode(trimOrEmpty(volume), StandardCharsets.UTF_8);
-            return "/?status=" + encodedStatus + "&message=" + encodedMessage + "&channelId=" + encodedChannelId + "&volume=" + encodedVolume;
+    private class StartBotHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method Not Allowed");
+                return;
+            }
+
+            Map<String, String> form = parseFormUrlEncoded(readRequestBody(exchange.getRequestBody()));
+            if (!isPanelKeyValid(form)) {
+                sendRedirect(exchange, buildRedirect("error", "Invalid panel key.", form.get("channelId"), form.get("volume")));
+                return;
+            }
+
+            String result = runtimeManager.startBot();
+            String status = runtimeManager.isOnline() ? "success" : "error";
+            sendRedirect(exchange, buildRedirect(status, result, form.get("channelId"), form.get("volume")));
         }
+    }
+
+    private class StopBotHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method Not Allowed");
+                return;
+            }
+
+            Map<String, String> form = parseFormUrlEncoded(readRequestBody(exchange.getRequestBody()));
+            if (!isPanelKeyValid(form)) {
+                sendRedirect(exchange, buildRedirect("error", "Invalid panel key.", form.get("channelId"), form.get("volume")));
+                return;
+            }
+
+            String result = runtimeManager.stopBot();
+            sendRedirect(exchange, buildRedirect("success", result, form.get("channelId"), form.get("volume")));
+        }
+    }
+
+    private boolean isPanelKeyValid(Map<String, String> form) {
+        if (panelKey == null || panelKey.isBlank()) {
+            return true;
+        }
+
+        String givenKey = form.getOrDefault("key", "");
+        return panelKey.equals(givenKey);
+    }
+
+    private String buildRedirect(String status, String message, String channelId, String volume) {
+        String encodedStatus = URLEncoder.encode(status, StandardCharsets.UTF_8);
+        String encodedMessage = URLEncoder.encode(trimOrEmpty(message), StandardCharsets.UTF_8);
+        String encodedChannelId = URLEncoder.encode(trimOrEmpty(channelId), StandardCharsets.UTF_8);
+        String encodedVolume = URLEncoder.encode(trimOrEmpty(volume), StandardCharsets.UTF_8);
+        return "/?status=" + encodedStatus + "&message=" + encodedMessage + "&channelId=" + encodedChannelId + "&volume=" + encodedVolume;
     }
 
     private String readRequestBody(InputStream requestBody) throws IOException {

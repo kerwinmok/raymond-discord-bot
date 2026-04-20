@@ -5,6 +5,8 @@ import org.jetbrains.annotations.NotNull;
 import com.example.discordbot.audio.PlayerManager;
 
 import net.dv8tion.jda.api.Permission;
+import net.dv8tion.jda.api.Region;
+import net.dv8tion.jda.api.audio.hooks.ConnectionStatus;
 import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.GuildVoiceState;
 import net.dv8tion.jda.api.entities.Member;
@@ -14,6 +16,7 @@ import net.dv8tion.jda.api.hooks.ListenerAdapter;
 
 public class BotListener extends ListenerAdapter {
     private static final String PREFIX = "!";
+    private static final Region PREFERRED_NA_REGION = Region.US_EAST;
 
     @Override
     public void onMessageReceived(@NotNull MessageReceivedEvent event) {
@@ -79,6 +82,11 @@ public class BotListener extends ListenerAdapter {
             return;
         }
 
+        if (!looksLikeUrl(url)) {
+            event.getChannel().sendMessage("Usage: !play <youtube-url>").queue();
+            return;
+        }
+
         Member member = event.getMember();
         if (member == null) {
             event.getChannel().sendMessage("Join a voice channel first.").queue();
@@ -99,10 +107,9 @@ public class BotListener extends ListenerAdapter {
         }
 
         var audioManager = guild.getAudioManager();
-        AudioChannel connectedChannel = audioManager.getConnectedChannel();
-
-        // Avoid reconnect flapping when the bot is already in the same channel.
-        if (connectedChannel == null || !connectedChannel.getId().equals(voiceChannel.getId())) {
+        preferNorthAmericaRegion(voiceChannel);
+        // Avoid reconnect flapping if already connected or already queued to connect.
+        if (shouldOpenAudioConnection(audioManager, voiceChannel)) {
             audioManager.openAudioConnection(voiceChannel);
         }
         audioManager.setSendingHandler(PlayerManager.getInstance().getGuildMusicManager(guild).getSendHandler());
@@ -110,12 +117,86 @@ public class BotListener extends ListenerAdapter {
         PlayerManager.getInstance().loadAndPlay(guild, event.getChannel(), url);
     }
 
+    private boolean shouldOpenAudioConnection(net.dv8tion.jda.api.managers.AudioManager audioManager, AudioChannel targetChannel) {
+        AudioChannel connectedChannel = audioManager.getConnectedChannel();
+        if (isSameChannel(connectedChannel, targetChannel)) {
+            return false;
+        }
+
+        // Ignore repeated open requests while a join attempt is already in-flight.
+        ConnectionStatus status = audioManager.getConnectionStatus();
+        return switch (status) {
+            case CONNECTING_AWAITING_ENDPOINT,
+                    CONNECTING_AWAITING_WEBSOCKET_CONNECT,
+                    CONNECTING_AWAITING_AUTHENTICATION,
+                    CONNECTING_ATTEMPTING_UDP_DISCOVERY,
+                    CONNECTING_AWAITING_READY -> false;
+            default -> true;
+        };
+    }
+
+    private boolean isSameChannel(AudioChannel first, AudioChannel second) {
+        return first != null && second != null && first.getId().equals(second.getId());
+    }
+
+    private void preferNorthAmericaRegion(AudioChannel voiceChannel) {
+        Region currentRegion = voiceChannel.getRegion();
+        if (isNorthAmericaRegion(currentRegion) || currentRegion == PREFERRED_NA_REGION) {
+            return;
+        }
+
+        voiceChannel.getManager()
+                .setRegion(PREFERRED_NA_REGION)
+                .queue(
+                        ignored -> { },
+                        error -> System.out.println("Could not set voice channel region to US East: " + error.getMessage())
+                );
+    }
+
+    private boolean isNorthAmericaRegion(Region region) {
+        return region == Region.US_EAST
+                || region == Region.US_CENTRAL
+                || region == Region.US_SOUTH
+                || region == Region.US_WEST
+                || region == Region.VIP_US_EAST
+                || region == Region.VIP_US_CENTRAL
+                || region == Region.VIP_US_SOUTH
+                || region == Region.VIP_US_WEST;
+    }
+
     private String normalizePlayUrl(String rawUrl) {
         String value = rawUrl.trim();
-        if (value.startsWith("!")) {
-            value = value.substring(1).trim();
+        while (true) {
+            String lower = value.toLowerCase();
+
+            if (lower.startsWith("!play ")) {
+                value = value.substring(6).trim();
+                continue;
+            }
+
+            if (lower.equals("!play")) {
+                return "";
+            }
+
+            if (lower.startsWith("play ")) {
+                value = value.substring(5).trim();
+                continue;
+            }
+
+            if (value.startsWith("!")) {
+                value = value.substring(1).trim();
+                continue;
+            }
+
+            break;
         }
+
         return value;
+    }
+
+    private boolean looksLikeUrl(String value) {
+        String lower = value.toLowerCase();
+        return lower.startsWith("http://") || lower.startsWith("https://");
     }
 
     private void handleSay(MessageReceivedEvent event, String content) {
