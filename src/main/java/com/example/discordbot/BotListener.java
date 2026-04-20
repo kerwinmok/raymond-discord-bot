@@ -41,6 +41,11 @@ public class BotListener extends ListenerAdapter {
             return;
         }
 
+        if (raw.equals("!volume") || raw.startsWith("!volume ")) {
+            handleVolume(event, getCommandArgument(raw, "!volume"));
+            return;
+        }
+
         if (raw.equals("!skip")) {
             Guild guild = event.getGuild();
             PlayerManager.getInstance().getGuildMusicManager(guild).scheduler.nextTrack();
@@ -126,5 +131,32 @@ public class BotListener extends ListenerAdapter {
         }
 
         event.getChannel().sendMessage(content).queue();
+    }
+
+    private void handleVolume(MessageReceivedEvent event, String rawVolume) {
+        Guild guild = event.getGuild();
+
+        if (rawVolume.isBlank()) {
+            int current = PlayerManager.getInstance().getVolume(guild);
+            event.getChannel().sendMessage("Current volume: " + current + "%").queue();
+            return;
+        }
+
+        Integer parsed = parseInteger(rawVolume);
+        if (parsed == null) {
+            event.getChannel().sendMessage("Usage: !volume <0-150>").queue();
+            return;
+        }
+
+        int applied = PlayerManager.getInstance().setVolume(guild, parsed);
+        event.getChannel().sendMessage("Volume set to " + applied + "%").queue();
+    }
+
+    private Integer parseInteger(String rawValue) {
+        try {
+            return Integer.parseInt(rawValue.trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 }

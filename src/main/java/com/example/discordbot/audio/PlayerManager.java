@@ -16,6 +16,9 @@ import net.dv8tion.jda.api.entities.channel.middleman.MessageChannel;
 
 public class PlayerManager {
     private static final String QUEUED_MESSAGE_PREFIX = "Queued: **";
+    public static final int MIN_VOLUME = 0;
+    public static final int MAX_VOLUME = 150;
+    public static final int DEFAULT_VOLUME = 100;
 
     private static PlayerManager instance;
 
@@ -38,9 +41,22 @@ public class PlayerManager {
     public GuildMusicManager getGuildMusicManager(Guild guild) {
         return musicManagers.computeIfAbsent(guild.getIdLong(), id -> {
             GuildMusicManager guildMusicManager = new GuildMusicManager(audioPlayerManager);
+            guildMusicManager.player.setVolume(DEFAULT_VOLUME);
             guild.getAudioManager().setSendingHandler(guildMusicManager.getSendHandler());
             return guildMusicManager;
         });
+    }
+
+    public int getVolume(Guild guild) {
+        GuildMusicManager musicManager = getGuildMusicManager(guild);
+        return musicManager.player.getVolume();
+    }
+
+    public int setVolume(Guild guild, int requestedVolume) {
+        GuildMusicManager musicManager = getGuildMusicManager(guild);
+        int clampedVolume = clampVolume(requestedVolume);
+        musicManager.player.setVolume(clampedVolume);
+        return clampedVolume;
     }
 
     public void loadAndPlay(Guild guild, MessageChannel channel, String trackUrl) {
@@ -84,5 +100,17 @@ public class PlayerManager {
 
     private void sendQueuedMessage(MessageChannel channel, AudioTrack track) {
         channel.sendMessage(QUEUED_MESSAGE_PREFIX + track.getInfo().title + "**").queue();
+    }
+
+    private int clampVolume(int value) {
+        if (value < MIN_VOLUME) {
+            return MIN_VOLUME;
+        }
+
+        if (value > MAX_VOLUME) {
+            return MAX_VOLUME;
+        }
+
+        return value;
     }
 }

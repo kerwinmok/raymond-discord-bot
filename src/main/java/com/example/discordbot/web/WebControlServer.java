@@ -1,5 +1,6 @@
 package com.example.discordbot.web;
 
+import com.example.discordbot.audio.PlayerManager;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
@@ -91,11 +92,13 @@ public class WebControlServer {
             String status = trimOrEmpty(query.get("status"));
             String statusMessage = trimOrEmpty(query.get("message"));
             String channelFromQuery = trimOrEmpty(query.get("channelId"));
+            String volumeFromQuery = trimOrEmpty(query.get("volume"));
 
             String statusHtml = buildStatusHtml(status, statusMessage);
             String channelValue = resolveChannelValue(channelFromQuery);
+            String volumeValue = resolveVolumeValue(channelValue, volumeFromQuery);
             String keyInput = buildKeyInputHtml();
-            String html = renderPageHtml(statusHtml, channelValue, keyInput);
+            String html = renderPageHtml(statusHtml, channelValue, volumeValue, keyInput);
 
             sendHtml(exchange, 200, html);
         }
@@ -126,7 +129,11 @@ public class WebControlServer {
             }
 
             if ("success".equalsIgnoreCase(status)) {
-                return "<div class=\"status success\">Successfully sent ✅</div>";
+                String message = "Successfully sent ✅";
+                if (!statusMessage.isBlank()) {
+                    message = escapeHtml(statusMessage);
+                }
+                return "<div class=\"status success\">" + message + "</div>";
             }
 
             if ("error".equalsIgnoreCase(status)) {
@@ -140,7 +147,26 @@ public class WebControlServer {
             return "";
         }
 
-        private String renderPageHtml(String statusHtml, String channelValue, String keyInput) {
+        private String resolveVolumeValue(String channelValue, String volumeFromQuery) {
+            if (!volumeFromQuery.isBlank()) {
+                return volumeFromQuery;
+            }
+
+            Long channelId = parseChannelId(channelValue);
+            if (channelId == null) {
+                return String.valueOf(PlayerManager.DEFAULT_VOLUME);
+            }
+
+            TextChannel channel = jda.getTextChannelById(channelId);
+            if (channel == null) {
+                return String.valueOf(PlayerManager.DEFAULT_VOLUME);
+            }
+
+            int currentVolume = PlayerManager.getInstance().getVolume(channel.getGuild());
+            return String.valueOf(currentVolume);
+        }
+
+        private String renderPageHtml(String statusHtml, String channelValue, String volumeValue, String keyInput) {
             return """
                     <!DOCTYPE html>
                     <html lang=\"en\">
@@ -180,6 +206,9 @@ public class WebControlServer {
                         <label>Image URL (optional)</label>
                         <input name=\"imageUrl\" placeholder=\"https://example.com/image.png\" />
 
+                        <label>Volume (0-150)</label>
+                        <input name=\"volume\" type=\"number\" min=\"0\" max=\"150\" value=\"%s\" />
+
                         %s
                         <button type=\"submit\">Send as Bot</button>
                       </form>
@@ -199,7 +228,7 @@ public class WebControlServer {
                       </script>
                     </body>
                     </html>
-                    """.formatted(statusHtml, escapeHtml(channelValue), keyInput);
+                    """.formatted(statusHtml, escapeHtml(channelValue), escapeHtml(volumeValue), keyInput);
         }
     }
 
@@ -235,10 +264,18 @@ public class WebControlServer {
 
             String message = trimOrEmpty(form.get("message"));
             String imageUrl = trimOrEmpty(form.get("imageUrl"));
-            if (message.isBlank() && imageUrl.isBlank()) {
-                sendRedirect(exchange, buildRedirect("error", "Message or image URL is required.", form.get("channelId")));
+            Integer requestedVolume = parseVolume(form.get("volume"));
+            if (requestedVolume == null) {
+                sendRedirect(exchange, buildRedirect("error", "Volume must be a whole number.", form.get("channelId"), form.get("volume")));
                 return;
             }
+
+            if (message.isBlank() && imageUrl.isBlank() && form.get("volume") != null && form.get("volume").isBlank()) {
+                sendRedirect(exchange, buildRedirect("error", "Message, image URL, or volume is required.", form.get("channelId"), form.get("volume")));
+                return;
+            }
+
+            int appliedVolume = PlayerManager.getInstance().setVolume(channel.getGuild(), requestedVolume);
 
             MessageCreateBuilder builder = new MessageCreateBuilder();
             if (!message.isBlank()) {
@@ -248,11 +285,28 @@ public class WebControlServer {
                 builder.addEmbeds(new EmbedBuilder().setImage(imageUrl).build());
             }
 
+            if (message.isBlank() && imageUrl.isBlank()) {
+                sendRedirect(exchange, buildRedirect("success", "Volume set to " + appliedVolume + "%", form.get("channelId"), String.valueOf(appliedVolume)));
+                return;
+            }
+
             try {
                 channel.sendMessage(builder.build()).complete();
-                sendRedirect(exchange, buildRedirect("success", "", form.get("channelId")));
+                sendRedirect(exchange, buildRedirect("success", "Sent message. Volume is " + appliedVolume + "%", form.get("channelId"), String.valueOf(appliedVolume)));
             } catch (Exception e) {
-                sendRedirect(exchange, buildRedirect("error", "Failed to send: " + e.getMessage(), form.get("channelId")));
+                sendRedirect(exchange, buildRedirect("error", "Failed to send: " + e.getMessage(), form.get("channelId"), String.valueOf(appliedVolume)));
+            }
+        }
+
+        private Integer parseVolume(String rawVolume) {
+            if (rawVolume == null || rawVolume.isBlank()) {
+                return PlayerManager.DEFAULT_VOLUME;
+            }
+
+            try {
+                return Integer.parseInt(rawVolume.trim());
+            } catch (NumberFormatException e) {
+                return null;
             }
         }
 
@@ -269,11 +323,12 @@ public class WebControlServer {
             }
         }
 
-        private String buildRedirect(String status, String message, String channelId) {
+        private String buildRedirect(String status, String message, String channelId, String volume) {
             String encodedStatus = URLEncoder.encode(status, StandardCharsets.UTF_8);
             String encodedMessage = URLEncoder.encode(trimOrEmpty(message), StandardCharsets.UTF_8);
             String encodedChannelId = URLEncoder.encode(trimOrEmpty(channelId), StandardCharsets.UTF_8);
-            return "/?status=" + encodedStatus + "&message=" + encodedMessage + "&channelId=" + encodedChannelId;
+            String encodedVolume = URLEncoder.encode(trimOrEmpty(volume), StandardCharsets.UTF_8);
+            return "/?status=" + encodedStatus + "&message=" + encodedMessage + "&channelId=" + encodedChannelId + "&volume=" + encodedVolume;
         }
     }
 
