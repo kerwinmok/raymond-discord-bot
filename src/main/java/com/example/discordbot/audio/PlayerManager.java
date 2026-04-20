@@ -1,19 +1,22 @@
 package com.example.discordbot.audio;
 
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
 import com.sedmelluq.discord.lavaplayer.player.AudioLoadResultHandler;
 import com.sedmelluq.discord.lavaplayer.player.AudioPlayerManager;
 import com.sedmelluq.discord.lavaplayer.player.DefaultAudioPlayerManager;
 import com.sedmelluq.discord.lavaplayer.tools.FriendlyException;
 import com.sedmelluq.discord.lavaplayer.track.AudioPlaylist;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
+
 import dev.lavalink.youtube.YoutubeAudioSourceManager;
 import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.channel.middleman.MessageChannel;
 
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-
 public class PlayerManager {
+    private static final String QUEUED_MESSAGE_PREFIX = "Queued: **";
+
     private static PlayerManager instance;
 
     private final AudioPlayerManager audioPlayerManager;
@@ -47,18 +50,15 @@ public class PlayerManager {
             @Override
             public void trackLoaded(AudioTrack track) {
                 musicManager.scheduler.queue(track);
-                channel.sendMessage("Queued: **" + track.getInfo().title + "**").queue();
+                sendQueuedMessage(channel, track);
             }
 
             @Override
             public void playlistLoaded(AudioPlaylist playlist) {
-                AudioTrack track = playlist.getSelectedTrack();
-                if (track == null) {
-                    track = playlist.getTracks().get(0);
-                }
+                AudioTrack track = resolveTrackFromPlaylist(playlist);
 
                 musicManager.scheduler.queue(track);
-                channel.sendMessage("Queued: **" + track.getInfo().title + "**").queue();
+                sendQueuedMessage(channel, track);
             }
 
             @Override
@@ -71,5 +71,18 @@ public class PlayerManager {
                 channel.sendMessage("Could not load track: " + exception.getMessage()).queue();
             }
         });
+    }
+
+    private AudioTrack resolveTrackFromPlaylist(AudioPlaylist playlist) {
+        AudioTrack selectedTrack = playlist.getSelectedTrack();
+        if (selectedTrack != null) {
+            return selectedTrack;
+        }
+
+        return playlist.getTracks().get(0);
+    }
+
+    private void sendQueuedMessage(MessageChannel channel, AudioTrack track) {
+        channel.sendMessage(QUEUED_MESSAGE_PREFIX + track.getInfo().title + "**").queue();
     }
 }

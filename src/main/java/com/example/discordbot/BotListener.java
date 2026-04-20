@@ -13,6 +13,8 @@ import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
 
 public class BotListener extends ListenerAdapter {
+    private static final String PREFIX = "!";
+
     @Override
     public void onMessageReceived(@NotNull MessageReceivedEvent event) {
         if (event.getAuthor().isBot() || !event.isFromGuild()) {
@@ -20,29 +22,22 @@ public class BotListener extends ListenerAdapter {
         }
 
         String raw = event.getMessage().getContentRaw().trim();
-        if (!raw.startsWith("!")) {
+        if (!raw.startsWith(PREFIX)) {
+            return;
+        }
+
+        if (raw.startsWith("!http://") || raw.startsWith("!https://")) {
+            event.getChannel().sendMessage("Use: !play <youtube-url>").queue();
             return;
         }
 
         if (raw.equals("!play") || raw.startsWith("!play ")) {
-            String playArg;
-            if (raw.length() > 5) {
-                playArg = raw.substring(5).trim();
-            } else {
-                playArg = "";
-            }
-            handlePlay(event, playArg);
+            handlePlay(event, getCommandArgument(raw, "!play"));
             return;
         }
 
         if (raw.equals("!say") || raw.startsWith("!say ")) {
-            String sayArg;
-            if (raw.length() > 4) {
-                sayArg = raw.substring(4).trim();
-            } else {
-                sayArg = "";
-            }
-            handleSay(event, sayArg);
+            handleSay(event, getCommandArgument(raw, "!say"));
             return;
         }
 
@@ -63,7 +58,17 @@ public class BotListener extends ListenerAdapter {
         }
     }
 
+    private String getCommandArgument(String rawCommand, String commandName) {
+        if (rawCommand.length() <= commandName.length()) {
+            return "";
+        }
+
+        return rawCommand.substring(commandName.length()).trim();
+    }
+
     private void handlePlay(MessageReceivedEvent event, String url) {
+        url = normalizePlayUrl(url);
+
         if (url.isBlank()) {
             event.getChannel().sendMessage("Usage: !play <youtube-url>").queue();
             return;
@@ -88,10 +93,24 @@ public class BotListener extends ListenerAdapter {
             return;
         }
 
-        guild.getAudioManager().openAudioConnection(voiceChannel);
-        guild.getAudioManager().setSendingHandler(PlayerManager.getInstance().getGuildMusicManager(guild).getSendHandler());
+        var audioManager = guild.getAudioManager();
+        AudioChannel connectedChannel = audioManager.getConnectedChannel();
+
+        // Avoid reconnect flapping when the bot is already in the same channel.
+        if (connectedChannel == null || !connectedChannel.getId().equals(voiceChannel.getId())) {
+            audioManager.openAudioConnection(voiceChannel);
+        }
+        audioManager.setSendingHandler(PlayerManager.getInstance().getGuildMusicManager(guild).getSendHandler());
 
         PlayerManager.getInstance().loadAndPlay(guild, event.getChannel(), url);
+    }
+
+    private String normalizePlayUrl(String rawUrl) {
+        String value = rawUrl.trim();
+        if (value.startsWith("!")) {
+            value = value.substring(1).trim();
+        }
+        return value;
     }
 
     private void handleSay(MessageReceivedEvent event, String content) {

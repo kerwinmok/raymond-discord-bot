@@ -1,12 +1,12 @@
 package com.example.discordbot.audio;
 
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
+
 import com.sedmelluq.discord.lavaplayer.player.AudioPlayer;
 import com.sedmelluq.discord.lavaplayer.player.event.AudioEventAdapter;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrackEndReason;
-
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.LinkedBlockingQueue;
 
 public class TrackScheduler extends AudioEventAdapter {
     private final AudioPlayer player;
@@ -18,6 +18,7 @@ public class TrackScheduler extends AudioEventAdapter {
     }
 
     public void queue(AudioTrack track) {
+        // Start immediately if idle, otherwise keep order in the queue.
         if (!player.startTrack(track, true)) {
             queue.offer(track);
         }
@@ -33,6 +34,7 @@ public class TrackScheduler extends AudioEventAdapter {
 
     @Override
     public void onTrackEnd(AudioPlayer player, AudioTrack track, AudioTrackEndReason endReason) {
+        // Auto-advance when the previous track ended naturally.
         if (endReason.mayStartNext) {
             nextTrack();
         }

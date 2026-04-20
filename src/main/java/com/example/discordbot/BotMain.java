@@ -12,6 +12,9 @@ import net.dv8tion.jda.api.JDABuilder;
 import net.dv8tion.jda.api.requests.GatewayIntent;
 
 public class BotMain {
+    private static final String TOKEN_ENV_NAME = "DISCORD_TOKEN";
+    private static final String ENV_FILE_NAME = ".env";
+
     public static void main(String[] args) {
         String token = resolveToken();
 
@@ -20,15 +23,7 @@ public class BotMain {
         }
 
         try {
-            JDA jda = JDABuilder.createDefault(token)
-                    .enableIntents(
-                            GatewayIntent.GUILD_MESSAGES,
-                            GatewayIntent.MESSAGE_CONTENT,
-                            GatewayIntent.GUILD_VOICE_STATES
-                    )
-                    .addEventListeners(new BotListener())
-                    .build()
-                    .awaitReady();
+            JDA jda = buildAndAwaitJda(token);
 
             new WebControlServer(jda).start();
         } catch (InterruptedException e) {
@@ -37,13 +32,25 @@ public class BotMain {
         }
     }
 
+    private static JDA buildAndAwaitJda(String token) throws InterruptedException {
+        return JDABuilder.createDefault(token)
+                .enableIntents(
+                        GatewayIntent.GUILD_MESSAGES,
+                        GatewayIntent.MESSAGE_CONTENT,
+                        GatewayIntent.GUILD_VOICE_STATES
+                )
+                .addEventListeners(new BotListener())
+                .build()
+                .awaitReady();
+    }
+
     private static String resolveToken() {
-        String fromEnv = System.getenv("DISCORD_TOKEN");
+        String fromEnv = System.getenv(TOKEN_ENV_NAME);
         if (fromEnv != null && !fromEnv.isBlank()) {
             return fromEnv.trim();
         }
 
-        Path envPath = Path.of(".env");
+        Path envPath = Path.of(ENV_FILE_NAME);
         if (!Files.exists(envPath)) {
             return null;
         }
@@ -52,11 +59,12 @@ public class BotMain {
             List<String> lines = Files.readAllLines(envPath);
             for (String rawLine : lines) {
                 String line = rawLine.trim();
-                if (line.isBlank() || line.startsWith("#") || !line.startsWith("DISCORD_TOKEN=")) {
+                String expectedPrefix = TOKEN_ENV_NAME + "=";
+                if (line.isBlank() || line.startsWith("#") || !line.startsWith(expectedPrefix)) {
                     continue;
                 }
 
-                String value = line.substring("DISCORD_TOKEN=".length()).trim();
+                String value = line.substring(expectedPrefix.length()).trim();
                 if (value.startsWith("\"") && value.endsWith("\"") && value.length() >= 2) {
                     value = value.substring(1, value.length() - 1);
                 }

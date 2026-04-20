@@ -1,12 +1,14 @@
 package com.example.discordbot.audio;
 
-import com.sedmelluq.discord.lavaplayer.player.AudioPlayer;
-import com.sedmelluq.discord.lavaplayer.track.playback.MutableAudioFrame;
-import net.dv8tion.jda.api.audio.AudioSendHandler;
-
 import java.nio.ByteBuffer;
 
+import com.sedmelluq.discord.lavaplayer.player.AudioPlayer;
+import com.sedmelluq.discord.lavaplayer.track.playback.MutableAudioFrame;
+
+import net.dv8tion.jda.api.audio.AudioSendHandler;
+
 public class AudioPlayerSendHandler implements AudioSendHandler {
+    // Adapts LavaPlayer output frames into JDA's voice send interface.
     private final AudioPlayer audioPlayer;
     private final ByteBuffer buffer;
     private final MutableAudioFrame frame;
