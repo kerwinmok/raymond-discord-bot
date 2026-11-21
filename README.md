@@ -12,6 +12,13 @@ I built this project as a Discord music and utility bot in Java using JDA + Lava
 - Provides local web controls for sending message + optional image embed
 - Lets me start/stop the bot from the web panel
 
+## Screenshots
+
+### Local Web Control Panel
+![Local Web Control Panel](docs/images/web-panel.png)
+
+Use **Start Bot** / **Stop Bot** at the top to manage the JDA runtime connection, enter a target Discord `Channel ID`, send plain messages or optional image embeds (`Send as Bot`), and adjust per-guild audio volume (`0–150`).
+
 ## Core architecture
 
 - `BotMain`: app entry point, token resolution (`DISCORD_TOKEN` or `.env`)
